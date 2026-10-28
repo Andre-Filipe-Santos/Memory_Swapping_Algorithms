@@ -1,0 +1,69 @@
+# ---- Build output ----
+build/
+cmake-build-*/
+out/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+compile_commands.json
+
+# ---- Compiled objects / binaries ----
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exe
+*.out
+*.app
+*.d
+*.gch
+*.pch
+
+# ---- Debug info ----
+*.dSYM/
+*.su
+*.idb
+*.pdb
+*.dwo
+
+# ---- Editors / IDEs ----
+.idea/
+.vscode/
+.vs/
+.cache/
+*.swp
+*.swo
+*~
+.clangd/
+
+# ---- macOS ----
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+.fseventsd
+.TemporaryItems
+.VolumeIcon.icns
+
+# ---- Windows ----
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+*.stackdump
+
+# ---- Linux ----
+.directory
+.Trash-*
+.nfs*
+*.log
