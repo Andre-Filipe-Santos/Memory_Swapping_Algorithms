@@ -1,1 +1,0 @@
-./cmake-build-debug/application cenarios/basico.csv
