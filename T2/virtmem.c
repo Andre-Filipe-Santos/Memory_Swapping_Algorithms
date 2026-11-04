@@ -307,6 +307,10 @@ int page_eviction(frame_table_t *frame_table, swap_hash_t *swap, int32_t min_pag
             }
         }
         push_free_frame(&frame_table->free_stack, evict_pfn);
+        // A frame voltou a estar livre: apagar o registo do dono antigo.
+        fd->pte = NULL;
+        fd->pid = -1;
+        fd->vpn = 0;
     }
     return 0;
 }
@@ -514,7 +518,7 @@ void remove_from_eviction_array(array_t *eviction_arr, int pfn) {
 }
 
 /* ------------------------------------------------------------------ */
-/* RANDOM (slides 104 e 105)                                          */
+/* RANDOM                                                             */
 /* ------------------------------------------------------------------ */
 
 /**
@@ -550,7 +554,7 @@ int32_t random_eviction(frame_table_t *ft) {
 }
 
 /* ------------------------------------------------------------------ */
-/* LRU (slides 106, 107 e 111)                                        */
+/* LRU                                                                */
 /* ------------------------------------------------------------------ */
 
 /**
@@ -599,7 +603,7 @@ int32_t lru_eviction(frame_table_t *ft) {
 }
 
 /* ------------------------------------------------------------------ */
-/* NRU (slide 112)                                                    */
+/* NRU                                                                */
 /* ------------------------------------------------------------------ */
 
 /**
@@ -721,7 +725,7 @@ int32_t nru_eviction(frame_table_t *ft) {
 }
 
 /* ------------------------------------------------------------------ */
-/* CLOCK (slides 112 e 113)                                           */
+/* CLOCK                                                              */
 /* ------------------------------------------------------------------ */
 
 /**
