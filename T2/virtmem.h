@@ -8,6 +8,10 @@
 #include "virtmem_types.h"
 #include "pcb.h"
 
+// NRU: período (ms) da limpeza dos use bits - "Periodicamente, o SO coloca os
+// use bit = 0" (slide 112). Para mudar o período, alterar e recompilar.
+#define NRU_PERIOD_MS 500
+
 typedef enum {
     FIFO = 0,
     RANDOM,
@@ -35,7 +39,14 @@ int pop_free_frame(free_stack_t *stack);
 int init_eviction_arr(array_t *array, int num_pframes);
 int update_eviction_array(array_t *eviction_arr, int pfn, uint32_t current_time_ms);
 void remove_from_eviction_array(array_t *eviction_arr, int pfn);
-int evict(array_t *eviction_arr);
+int evict(frame_table_t *ft);
+
+// Algoritmos de substituição de páginas (cada um devolve o pfn da vítima).
+int32_t fifo_eviction(array_t *fifo);
+int32_t random_eviction(frame_table_t *ft);
+int32_t lru_eviction(frame_table_t *ft);
+int32_t nru_eviction(frame_table_t *ft);
+int32_t clock_eviction(frame_table_t *ft);
 
 int swap_out(swap_hash_t *swap, frame_desc_t *fd);
 int swap_in(swap_hash_t *swap, frame_desc_t *fd);

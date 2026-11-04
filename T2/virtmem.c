@@ -18,9 +18,17 @@
  * mesma ordem do enum eviction_algo_en em virtmem.h), ao switch de evict() e
  * implementar as funções random_eviction() / lru_eviction() / nru_eviction() /
  * clock_eviction(). */
+
+/* Nomes aceites por --vm, pela mesma ordem do enum eviction_algo_en
+ * (virtmem.h). Cada um tem a sua função de evicção, escolhida em evict():
+ * fifo_eviction(), random_eviction(), lru_eviction(), nru_eviction() e
+ * clock_eviction(). */
 const char* eviction_algo_str[] = { "FIFO", "RANDOM", "LRU","NRU","CLOCK", NULL };
 
 static eviction_algo_en eviction_algo = FIFO;
+
+// NRU: limpeza periódica dos use bits (definida mais abaixo, junto do NRU).
+static void nru_tick(frame_table_t *ft, uint32_t current_time_ms);
 
 static int npageacc = 0;
 static int npagefaults = 0;
@@ -40,7 +48,6 @@ int set_eviction_algo(const char *ev_str) {
 const char *get_eviction_algo_str(void) {
     return eviction_algo_str[eviction_algo];
 }
-
 /* ------------------------------------------------------------------ */
 /* Criação de estruturas                                              */
 /* ------------------------------------------------------------------ */
@@ -272,8 +279,12 @@ pte_t *page_request(pcb_t *pcb, frame_table_t *frame_table, swap_hash_t *swap, i
 }
 
 int page_eviction(frame_table_t *frame_table, swap_hash_t *swap, int32_t min_pages_threshold) {
+    // NRU: antes de cada acesso, aplicar a limpeza periódica dos use bits se
+    // tiver terminado um período (não faz nada com os outros algoritmos).
+    nru_tick(frame_table, now_ms());
+
     while (frame_table->free_stack.top + 1 < min_pages_threshold) {
-        int evict_pfn = evict(&frame_table->eviction_order);
+        int evict_pfn = evict(frame_table);
         if (evict_pfn == INVALID_PFN) {
             printf("No pframe to evict!\n");
             return -1;
@@ -384,7 +395,74 @@ int32_t fifo_eviction(array_t *fifo) {
     return pfn;
 }
 
-//RANDOM
+/* ------------------------------------------------------------------ */
+/* Funções auxiliares usadas pelos algoritmos RANDOM, LRU, NRU, CLOCK */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Retira da estrutura de ordem de evicção o elemento que está na posição
+ * `idx` e devolve o pfn (número da frame física) que lá estava.
+ *
+ * É usada por todos os algoritmos novos: cada algoritmo só tem de DECIDIR
+ * qual é a posição da vítima; a remoção é sempre feita aqui, da mesma forma.
+ */
+static int32_t remove_at_index(array_t *arr, int idx) {
+    // Passo 1: validar os argumentos (array vazio ou índice fora dos limites).
+    if (arr == NULL || idx < 0 || idx > arr->top) return INVALID_PFN;
+
+    // Passo 2: guardar o pfn da vítima antes de o elemento ser sobreposto.
+    int32_t pfn = (int32_t)arr->ids[idx].pfn;
+
+    // Passo 3: deslocar uma posição para trás todos os elementos seguintes.
+    //          Assim o array continua contíguo (posições 0..top) e mantém a
+    //          ordem relativa de carregamento das restantes páginas.
+    for (int j = idx + 1; j <= arr->top; j++) {
+        arr->ids[j - 1] = arr->ids[j];
+    }
+
+    // Passo 4: há menos um elemento no array.
+    arr->top--;
+
+    // Passo 5: manter o ponteiro do relógio (last_index, usado pelo CLOCK)
+    //          a apontar para a MESMA página para onde apontava antes:
+    //          - se o elemento retirado estava antes do ponteiro, todos os
+    //            elementos a partir dele recuaram uma posição, por isso o
+    //            ponteiro também recua uma posição;
+    //          - se o elemento retirado era o apontado, o elemento seguinte
+    //            ocupa agora a mesma posição, por isso o ponteiro fica igual
+    //            (passa a apontar para a página seguinte à vítima);
+    //          - se o ponteiro ficar para lá do fim, dá a volta para o início
+    //            (a lista é circular).
+    if (idx < arr->last_index) {
+        arr->last_index--;
+    }
+    if (arr->last_index > arr->top) {
+        arr->last_index = 0;
+    }
+
+    return pfn;
+}
+
+/**
+ * Imprime o estado atual da estrutura de ordem de evicção, para demonstrar
+ * que o algoritmo escolhido toma a decisão correta (requisito 4 do enunciado).
+ *
+ * Formato de cada elemento:  [posição]F<frame>(P<pid> V<vpn> use=<use bit> t=<último acesso em ms>)
+ * O ponteiro do relógio (CLOCK) é assinalado com o carácter '>'.
+ */
+static void print_eviction_state(const frame_table_t *ft, const char *algo) {
+    const array_t *arr = &ft->eviction_order;
+
+    printf("[%s] Eviction order (%d frames, oldest loaded first):", algo, arr->top + 1);
+    for (int i = 0; i <= arr->top; i++) {
+        const array_elem_t *e = &arr->ids[i];
+        const frame_desc_t *fd = &ft->frames[e->pfn];
+        printf(" %s[%d]F%u(P%d V%u use=%u t=%u)",
+               (eviction_algo == CLOCK && i == arr->last_index) ? ">" : "",
+               i, e->pfn, fd->pid, fd->vpn, e->use_bit, e->last_accessed);
+    }
+    printf("\n");
+}
 
 /**
  * Regista um acesso a `pfn` na estrutura de ordem de evicção.
@@ -426,22 +504,302 @@ void remove_from_eviction_array(array_t *eviction_arr, int pfn) {
     if (eviction_arr == NULL) return;
     for (int i = 0; i <= eviction_arr->top; i++) {
         if (eviction_arr->ids[i].pfn == (uint32_t)pfn) {
-            for (int j = i + 1; j <= eviction_arr->top; j++) {
-                eviction_arr->ids[j - 1] = eviction_arr->ids[j];
-            }
-            eviction_arr->top--;
-            if (eviction_arr->last_index > eviction_arr->top) {
-                eviction_arr->last_index = 0;
-            }
+            // Usa a mesma função de remoção dos algoritmos, para que o
+            // ponteiro do relógio (CLOCK) continue a apontar para a mesma
+            // página quando um processo termina e as suas frames saem do array.
+            remove_at_index(eviction_arr, i);
             return;
         }
     }
 }
 
-int evict(array_t *eviction_arr) {
+/* ------------------------------------------------------------------ */
+/* RANDOM (slides 104 e 105)                                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * RANDOM: "Seleciona uma página aleatoriamente" (slide 104).
+ *
+ * Todas as páginas em memória são candidatas, de qualquer processo
+ * (slide 98: "Essas páginas podem pertencer a qualquer processo").
+ * O gerador rand() é inicializado com srand(time(NULL)) em init_eviction_arr(),
+ * por isso a escolha muda de execução para execução ("a execução não é
+ * determinística", slide 104).
+ */
+int32_t random_eviction(frame_table_t *ft) {
+    array_t *arr = &ft->eviction_order;
+
+    // Passo 1: se não houver páginas em memória, não há vítima possível.
+    if (arr->top < 0) return INVALID_PFN;
+
+    // Passo 2: mostrar as páginas candidatas (todas as que estão em memória).
+    print_eviction_state(ft, "RANDOM");
+
+    // Passo 3: número de candidatas = número de elementos do array (0..top).
+    int num_candidates = arr->top + 1;
+
+    // Passo 4: sortear uma posição entre 0 e num_candidates - 1.
+    int victim_idx = rand() % num_candidates;
+
+    printf("[RANDOM] rand() %% %d = %d -> victim is frame %u (VPN %u)\n",
+           num_candidates, victim_idx, arr->ids[victim_idx].pfn,
+           ft->frames[arr->ids[victim_idx].pfn].vpn);
+
+    // Passo 5: retirar a vítima do array e devolver a sua frame.
+    return remove_at_index(arr, victim_idx);
+}
+
+/* ------------------------------------------------------------------ */
+/* LRU (slides 106, 107 e 111)                                        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * LRU (Least Recently Used): "Substitui a página que não é utilizada há mais
+ * tempo" (slide 107).
+ *
+ * Implementação do slide 111: em cada acesso é registado um timestamp
+ * (campo last_accessed, atualizado por update_eviction_array() em cada page
+ * hit e em cada carregamento, com o tempo do simulador em ms - now_ms()).
+ * Na substituição percorre-se a estrutura e escolhe-se a página com o
+ * timestamp MAIS ANTIGO (o menor valor).
+ *
+ * Empates: os acessos de um mesmo burst são feitos todos no mesmo instante,
+ * por isso várias páginas podem ter o mesmo timestamp. Nesse caso é
+ * escolhida a que foi carregada há mais tempo (a que aparece primeiro no
+ * array, que está por ordem de carregamento).
+ */
+int32_t lru_eviction(frame_table_t *ft) {
+    array_t *arr = &ft->eviction_order;
+
+    // Passo 1: se não houver páginas em memória, não há vítima possível.
+    if (arr->top < 0) return INVALID_PFN;
+
+    // Passo 2: mostrar os timestamps de todas as páginas em memória.
+    print_eviction_state(ft, "LRU");
+
+    // Passo 3: começar por assumir que a vítima é a primeira página do array.
+    int victim_idx = 0;
+
+    // Passo 4: percorrer as restantes páginas e ficar com a de timestamp
+    //          mais antigo. A comparação é ESTRITA (<): em caso de empate
+    //          mantém-se a que apareceu primeiro, ou seja, a carregada há
+    //          mais tempo.
+    for (int i = 1; i <= arr->top; i++) {
+        if (arr->ids[i].last_accessed < arr->ids[victim_idx].last_accessed) {
+            victim_idx = i;
+        }
+    }
+
+    printf("[LRU] Oldest last access t=%u ms -> victim is frame %u (VPN %u)\n",
+           arr->ids[victim_idx].last_accessed, arr->ids[victim_idx].pfn,
+           ft->frames[arr->ids[victim_idx].pfn].vpn);
+
+    // Passo 5: retirar a vítima do array e devolver a sua frame.
+    return remove_at_index(arr, victim_idx);
+}
+
+/* ------------------------------------------------------------------ */
+/* NRU (slide 112)                                                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * NRU - "Periodicamente, o SO coloca os use bit = 0" (slide 112).
+ *
+ * Coloca a 0 o use bit de todas as páginas em memória. É chamada por
+ * nru_tick() uma vez por cada período de NRU_PERIOD_MS ms. Depois da limpeza,
+ * o "hardware" volta a pôr use bit = 1 em cada página que for acedida (feito
+ * em update_eviction_array()).
+ *
+ * period_end_ms: instante em que terminou o período (múltiplo de NRU_PERIOD_MS)
+ * current_time_ms: instante em que a limpeza foi efetivamente aplicada
+ */
+static void nru_clear_use_bits(frame_table_t *ft, uint32_t period_end_ms,
+                               uint32_t current_time_ms) {
+    array_t *arr = &ft->eviction_order;
+
+    // Passo 1: percorrer todas as páginas que estão em memória.
+    for (int i = 0; i <= arr->top; i++) {
+        // Passo 2: colocar o use bit a 0 ("não foi usada neste período").
+        arr->ids[i].use_bit = 0;
+
+        // Passo 3: manter coerente o bit "referenced" da entrada da tabela de
+        //          páginas (PTE) correspondente, que representa a mesma
+        //          informação.
+        frame_desc_t *fd = &ft->frames[arr->ids[i].pfn];
+        if (fd->pte) fd->pte->referenced = 0;
+    }
+
+    // Passo 4: registar a limpeza no log (só quando há páginas em memória,
+    //          para não encher o log enquanto o simulador está parado).
+    if (arr->top >= 0) {
+        printf("[NRU] Periodic reset: period ended at t=%u ms (applied at t=%u ms)"
+               " -> use bit = 0 for %d frames\n",
+               period_end_ms, current_time_ms, arr->top + 1);
+    }
+}
+
+/**
+ * NRU - relógio periódico do SO (períodos de NRU_PERIOD_MS ms, virtmem.h).
+ *
+ * Os períodos são fixos, contados desde o arranque do simulador:
+ * [0, 500[, [500, 1000[, [1000, 1500[, ... (com NRU_PERIOD_MS = 500).
+ *
+ * É chamada no início de page_eviction(), ou seja, imediatamente ANTES de cada
+ * acesso a uma página (o ossim.c chama page_eviction() e depois
+ * page_request() para cada página de um burst). Se desde a última limpeza
+ * terminou pelo menos um período, os use bits são colocados a 0 nesse momento.
+ *
+ * O resultado é igual ao de um relógio que limpasse os bits exatamente nos
+ * instantes 500, 1000, 1500, ...: os use bits só são lidos (na evicção) e
+ * escritos (nos acessos) dentro de page_eviction()/page_request(), e a
+ * limpeza é sempre aplicada antes do primeiro acesso de cada novo período.
+ */
+static void nru_tick(frame_table_t *ft, uint32_t current_time_ms) {
+    // Início do período atual. É "static" para manter o valor entre chamadas
+    // (começa em 0, o instante em que o simulador arranca).
+    static uint32_t period_start_ms = 0;
+
+    // Passo 1: a limpeza periódica só faz parte do algoritmo NRU.
+    if (eviction_algo != NRU) return;
+
+    // Passo 2: ainda não terminou o período atual -> nada a fazer.
+    uint32_t elapsed_ms = current_time_ms - period_start_ms;
+    if (elapsed_ms < NRU_PERIOD_MS) return;
+
+    // Passo 3: terminaram um ou mais períodos completos. O novo período começa
+    //          no último múltiplo de NRU_PERIOD_MS (não no instante atual),
+    //          para que os períodos fiquem sempre alinhados: 500, 1000, 1500...
+    //          Se passaram vários períodos sem acessos, basta uma limpeza.
+    period_start_ms += (elapsed_ms / NRU_PERIOD_MS) * NRU_PERIOD_MS;
+
+    // Passo 4: colocar todos os use bits a 0.
+    nru_clear_use_bits(ft, period_start_ms, current_time_ms);
+}
+
+/**
+ * NRU (Not Recently Used): "Quando o SO necessita de uma página, procura uma
+ * que tenha o use bit = 0 (não foi usada neste período)" (slide 112).
+ *
+ * Regras quando o slide não especifica:
+ *  - se várias páginas têm use bit = 0, escolhe-se a primeira encontrada
+ *    percorrendo o array por ordem de carregamento (a carregada há mais tempo);
+ *  - se TODAS as páginas têm use bit = 1, escolhe-se a página carregada há
+ *    mais tempo (a primeira do array).
+ */
+int32_t nru_eviction(frame_table_t *ft) {
+    array_t *arr = &ft->eviction_order;
+
+    // Passo 1: se não houver páginas em memória, não há vítima possível.
+    if (arr->top < 0) return INVALID_PFN;
+
+    // Passo 2: mostrar o use bit de todas as páginas em memória.
+    print_eviction_state(ft, "NRU");
+
+    // Passo 3: procurar, por ordem de carregamento, a primeira página com
+    //          use bit = 0 (não usada desde a última limpeza periódica).
+    int victim_idx = -1;
+    for (int i = 0; i <= arr->top; i++) {
+        if (arr->ids[i].use_bit == 0) {
+            victim_idx = i;
+            break;
+        }
+    }
+
+    if (victim_idx >= 0) {
+        printf("[NRU] First page with use bit = 0 -> victim is frame %u (VPN %u)\n",
+               arr->ids[victim_idx].pfn, ft->frames[arr->ids[victim_idx].pfn].vpn);
+    } else {
+        // Passo 4: todas as páginas foram usadas neste período (use bit = 1);
+        //          escolher a carregada há mais tempo (posição 0).
+        victim_idx = 0;
+        printf("[NRU] All pages have use bit = 1 -> oldest loaded page, frame %u (VPN %u)\n",
+               arr->ids[victim_idx].pfn, ft->frames[arr->ids[victim_idx].pfn].vpn);
+    }
+
+    // Passo 5: retirar a vítima do array e devolver a sua frame.
+    return remove_at_index(arr, victim_idx);
+}
+
+/* ------------------------------------------------------------------ */
+/* CLOCK (slides 112 e 113)                                           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * CLOCK (algoritmo do relógio), slide 112:
+ *  - "As páginas são colocadas numa lista circular (como se fossem um relógio)"
+ *    -> o array eviction_order, percorrido de forma circular (depois da
+ *       última posição, top, volta-se à posição 0). As páginas novas são
+ *       acrescentadas no fim do array por update_eviction_array();
+ *  - "O SO inicia a procura pela página apontada pelo ponteiro"
+ *    -> o ponteiro é o campo last_index, que se mantém entre chamadas, por
+ *       isso cada procura começa onde a anterior terminou;
+ *  - "Use bit = 0: seleciona a página para ser substituída"
+ *  - "Use bit = 1: coloca use bit = 0, avança o ponteiro para a próxima página
+ *    e repete o processo até encontrar uma página com use bit = 0".
+ *
+ * Termina sempre: no pior caso (todas com use bit = 1) a primeira volta põe
+ * todos os use bits a 0 e a vítima é encontrada na segunda volta.
+ */
+int32_t clock_eviction(frame_table_t *ft) {
+    array_t *arr = &ft->eviction_order;
+
+    // Passo 1: se não houver páginas em memória, não há vítima possível.
+    if (arr->top < 0) return INVALID_PFN;
+
+    // Passo 2: garantir que o ponteiro está dentro do array (a lista pode ter
+    //          encolhido desde a última procura).
+    if (arr->last_index > arr->top) arr->last_index = 0;
+
+    // Passo 3: mostrar o estado do relógio ('>' marca o ponteiro).
+    print_eviction_state(ft, "CLOCK");
+
+    // Passo 4: rodar o ponteiro até encontrar uma página com use bit = 0.
+    while (1) {
+        array_elem_t *e = &arr->ids[arr->last_index];
+
+        if (e->use_bit == 0) {
+            // Passo 4a: use bit = 0 -> esta página é a vítima.
+            printf("[CLOCK] Hand at [%d] frame %u (VPN %u) use=0 -> victim\n",
+                   arr->last_index, e->pfn, ft->frames[e->pfn].vpn);
+
+            // Passo 5: retirar a vítima. remove_at_index() deixa o ponteiro a
+            //          apontar para a página seguinte à vítima, onde começará
+            //          a próxima procura.
+            return remove_at_index(arr, arr->last_index);
+        }
+
+        // Passo 4b: use bit = 1 -> dar uma "segunda oportunidade": colocar o
+        //           use bit a 0 e avançar o ponteiro para a próxima página
+        //           (voltando ao início depois da última - lista circular).
+        printf("[CLOCK] Hand at [%d] frame %u (VPN %u) use=1 -> set use=0, advance\n",
+               arr->last_index, e->pfn, ft->frames[e->pfn].vpn);
+        e->use_bit = 0;
+        arr->last_index = (arr->last_index + 1) % (arr->top + 1);
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/* Escolha do algoritmo                                               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Escolhe a frame vítima com o algoritmo definido por --vm e devolve o seu pfn
+ * (ou INVALID_PFN se não houver nenhuma). A vítima já sai da estrutura de
+ * ordem de evicção; page_eviction() trata do swap-out e de a pôr na lista de
+ * frames livres.
+ */
+int evict(frame_table_t *ft) {
     switch (eviction_algo) {
         case FIFO:
-            return fifo_eviction(eviction_arr);
+            return fifo_eviction(&ft->eviction_order);
+        case RANDOM:
+            return random_eviction(ft);
+        case LRU:
+            return lru_eviction(ft);
+        case NRU:
+            return nru_eviction(ft);
+        case CLOCK:
+            return clock_eviction(ft);
         default:
             printf("Eviction algorithm '%s' not implemented yet\n", get_eviction_algo_str());
             return INVALID_PFN;
