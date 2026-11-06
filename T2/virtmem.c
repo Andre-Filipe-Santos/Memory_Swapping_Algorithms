@@ -234,15 +234,15 @@ pte_t *page_request(pcb_t *pcb, frame_table_t *frame_table, swap_hash_t *swap, i
     }
 
     if (is_active(pte)) {                       // page hit
-        //TODO ADICIONADO PRINTF
-        printf("[PID %d] Page Hit: VPN %d Found in Frame %d.\n", pcb->pid, vpn, pte->pfn);
+        //TODO ADICIONADO PRINTF PAGE HIT
+        printf("[PID %d] Page Hit: VPN %d Found in Frame %d.\n\n", pcb->pid, vpn, pte->pfn);
         update_eviction_array(&frame_table->eviction_order, pte->pfn, current_time_ms);
         return pte;
     }
 
     npagefaults++;
-    //TODO ADICIONADO PRINTF
-    printf("[PID %d] Page Fault: VPN %d Requested but not in RAM.\n", pcb->pid, vpn);
+    //TODO ADICIONADO PRINTF PAGE FAULT
+    printf("[PID %d] Page Fault: VPN %d Requested but not in RAM.\n\n", pcb->pid, vpn);
 
     if (is_valid(pte)) {                        // está em swap
         int32_t next_pfn = pop_free_frame(&frame_table->free_stack);
@@ -295,13 +295,13 @@ int page_eviction(frame_table_t *frame_table, swap_hash_t *swap, int32_t min_pag
             printf("pfn %d has no valid vpn to evict!\n", evict_pfn);
             continue;
         }
-        //TODO ADDED PRINTF
-        printf("[PID %d] Eviction: Frame %d -> VPN %d EVICTED.\n", fd->pid, evict_pfn, fd->vpn);
+        //TODO ADDED PRINTF EVICTION
+        printf("[PID %d] Eviction: Frame %d -> VPN %d EVICTED.\n\n", fd->pid, evict_pfn, fd->vpn);
         pte->present = 0;
         if (pte->dirty) {
 
-            //TODO ADDED PRINTF
-            printf("[PID %d] Dirty Page: VPN %d is DIRTY -> swap-out to disc.\n", fd->pid, fd->vpn);
+            //TODO ADDED PRINTF DIRTY PAGES
+            printf("[PID %d] Dirty Page: VPN %d is DIRTY -> swap-out to disc.\n\n", fd->pid, fd->vpn);
             if (swap_out(swap, fd) < 0) {
                 printf("Failed to swap out vpn %d of process %d\n", fd->vpn, fd->pid);
             }
@@ -457,11 +457,12 @@ static int32_t remove_at_index(array_t *arr, int idx) {
 static void print_eviction_state(const frame_table_t *ft, const char *algo) {
     const array_t *arr = &ft->eviction_order;
 
-    printf("[%s] Eviction order (%d frames, oldest loaded first):", algo, arr->top + 1);
+    //TODO ADDED PRINTF EVICTION ORDER
+    printf("[%s] Eviction order (%d frames, oldest loaded first):\n", algo, arr->top + 1);
     for (int i = 0; i <= arr->top; i++) {
         const array_elem_t *e = &arr->ids[i];
         const frame_desc_t *fd = &ft->frames[e->pfn];
-        printf(" %s[%d]F%u(P%d V%u use=%u t=%u)",
+        printf(" %s[%d]F%u(P%d V%u use=%u t=%u)\n",
                (eviction_algo == CLOCK && i == arr->last_index) ? ">" : "",
                i, e->pfn, fd->pid, fd->vpn, e->use_bit, e->last_accessed);
     }

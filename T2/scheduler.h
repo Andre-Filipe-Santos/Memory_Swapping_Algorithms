@@ -10,6 +10,7 @@
 // TODO (opcional, tarefa 5): acrescentar SCHED_RR.
 typedef enum {
     SCHED_FIFO = 0,
+    SCHED_RR
 } sched_algo_en;
 
 int  set_sched_algo(const char *name);   // -1 se o nome for inválido / não implementado
