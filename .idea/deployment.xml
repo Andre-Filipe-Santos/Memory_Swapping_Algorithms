@@ -8,7 +8,7 @@
             <mapping deploy="/build" local="$PROJECT_DIR$" web="/" />
           </mappings>
           <excludedPaths>
-            <excludedPath local="true" path="$PROJECT_DIR$/T2/cmake-build-debug" />
+            <excludedPath local="true" path="$PROJECT_DIR$/T2/build" />
             <excludedPath local="true" path="$PROJECT_DIR$/T2/build" />
             <excludedPath local="true" path="$PROJECT_DIR$/T2/cmake-build-debug" />
           </excludedPaths>

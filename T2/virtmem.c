@@ -296,7 +296,7 @@ int page_eviction(frame_table_t *frame_table, swap_hash_t *swap, int32_t min_pag
             continue;
         }
         //TODO ADDED PRINTF EVICTION
-        printf("[PID %d] Eviction: Frame %d -> VPN %d EVICTED.\n\n", fd->pid, evict_pfn, fd->vpn);
+        printf("[PID %d] Eviction: Frame %d -> VPN %d EVICTED.\n", fd->pid, evict_pfn, fd->vpn);
         pte->present = 0;
         if (pte->dirty) {
 
@@ -305,6 +305,9 @@ int page_eviction(frame_table_t *frame_table, swap_hash_t *swap, int32_t min_pag
             if (swap_out(swap, fd) < 0) {
                 printf("Failed to swap out vpn %d of process %d\n", fd->vpn, fd->pid);
             }
+        }else {
+            // Página limpa: a cópia em swap já está atualizada, não é preciso escrever.
+            printf("[PID %d] Clean Page: VPN %d is CLEAN -> discarded, no swap-out.\n\n", fd->pid, fd->vpn);
         }
         push_free_frame(&frame_table->free_stack, evict_pfn);
         // A frame voltou a estar livre: apagar o registo do dono antigo.
@@ -523,7 +526,7 @@ void remove_from_eviction_array(array_t *eviction_arr, int pfn) {
 /* ------------------------------------------------------------------ */
 
 /**
- * RANDOM: "Seleciona uma página aleatoriamente" (slide 104).
+ * RANDOM: "Seleciona uma página aleatoriamente"
  *
  * Todas as páginas em memória são candidatas, de qualquer processo
  * (slide 98: "Essas páginas podem pertencer a qualquer processo").
@@ -595,7 +598,7 @@ int32_t lru_eviction(frame_table_t *ft) {
         }
     }
 
-    printf("[LRU] Oldest last access t=%u ms -> victim is frame %u (VPN %u)\n",
+    printf("[LRU] Oldest last access t=%u ms -> victim is frame %u (VPN %u)\n\n",
            arr->ids[victim_idx].last_accessed, arr->ids[victim_idx].pfn,
            ft->frames[arr->ids[victim_idx].pfn].vpn);
 
