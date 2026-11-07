@@ -13,7 +13,7 @@ typedef enum {
     SCHED_RR
 } sched_algo_en;
 
-int  set_sched_algo(const char *name);   // -1 se o nome for inválido / não implementado
+int set_sched_algo(const char *name); // -1 se o nome for inválido / não implementado
 const char *get_sched_algo_str(void);
 
 /**

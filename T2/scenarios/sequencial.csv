@@ -1,0 +1,16 @@
+# Workload #3 (slide 113): ciclo sequencial (looping sequential)
+# Paginas 1,2,3,4,5 acedidas em ciclo, 6 vezes (30 acessos). O ciclo (5 paginas)
+# e maior do que a memoria (4 paginas): FIFO e LRU falham sempre; RANDOM nao.
+# Executar com: --pframes 5 --threshold 1 (4 paginas residentes antes de cada acesso)
+# Cada burst: 300 ms CPU + 300 ms bloqueado (> NRU_PERIOD_MS = 500 ms)
+300,300,0,[1,2,3]
+300,300,0,[4,5,1]
+300,300,0,[2,3]
+300,300,0,[4,5,1]
+300,300,0,[2,3,4]
+300,300,0,[5,1,2]
+300,300,0,[3,4,5]
+300,300,0,[1,2,3]
+300,300,0,[4,5,1]
+300,300,0,[2,3]
+300,300,0,[4,5]

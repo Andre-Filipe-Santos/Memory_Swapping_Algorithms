@@ -23,7 +23,7 @@
  * (virtmem.h). Cada um tem a sua função de evicção, escolhida em evict():
  * fifo_eviction(), random_eviction(), lru_eviction(), nru_eviction() e
  * clock_eviction(). */
-const char* eviction_algo_str[] = { "FIFO", "RANDOM", "LRU","NRU","CLOCK", NULL };
+const char *eviction_algo_str[] = {"FIFO", "RANDOM", "LRU", "NRU", "CLOCK", NULL};
 
 static eviction_algo_en eviction_algo = FIFO;
 
@@ -48,6 +48,7 @@ int set_eviction_algo(const char *ev_str) {
 const char *get_eviction_algo_str(void) {
     return eviction_algo_str[eviction_algo];
 }
+
 /* ------------------------------------------------------------------ */
 /* Criação de estruturas                                              */
 /* ------------------------------------------------------------------ */
@@ -64,7 +65,7 @@ frame_table_t *create_frame_table(int num_pframes) {
         return NULL;
     }
 
-    ft->frames = calloc((size_t)num_pframes, sizeof(frame_desc_t));
+    ft->frames = calloc((size_t) num_pframes, sizeof(frame_desc_t));
     if (!ft->frames) {
         printf("Cannot allocate memory for frame descriptors\n");
         free(ft);
@@ -92,7 +93,7 @@ int create_page_table(page_table_t *pt, int num_vpages) {
         printf("Invalid page table\n");
         return -1;
     }
-    pt->ptes = malloc((size_t)num_vpages * sizeof(pte_t));
+    pt->ptes = malloc((size_t) num_vpages * sizeof(pte_t));
     if (pt->ptes == NULL) {
         printf("Cannot allocate memory for page table\n");
         return -1;
@@ -117,7 +118,7 @@ int is_valid(pte_t *page) {
 }
 
 pte_t *find_page(page_table_t *pt, int32_t vpn) {
-    if (pt == NULL || vpn < 0 || (uint32_t)vpn > pt->nvalid) {
+    if (pt == NULL || vpn < 0 || (uint32_t) vpn > pt->nvalid) {
         return NULL;
     }
     return &pt->ptes[vpn];
@@ -132,7 +133,7 @@ int init_free_stack(free_stack_t *stack, int num_pframes) {
         printf("Invalid free stack\n");
         return -1;
     }
-    stack->ids = malloc((size_t)num_pframes * sizeof(uint32_t));
+    stack->ids = malloc((size_t) num_pframes * sizeof(uint32_t));
     if (stack->ids == NULL) {
         printf("Cannot allocate memory for free stack\n");
         return -1;
@@ -147,7 +148,7 @@ int push_free_frame(free_stack_t *stack, int pfn) {
     if (stack == NULL || pfn < 0 || stack->top >= (stack->max_size - 1)) {
         return 0;
     }
-    stack->ids[++(stack->top)] = (uint32_t)pfn;
+    stack->ids[++(stack->top)] = (uint32_t) pfn;
     return 1;
 }
 
@@ -166,7 +167,7 @@ int pop_free_frame(free_stack_t *stack) {
 
 int swap_out(swap_hash_t *swap, frame_desc_t *fd) {
     pte_t *pte = fd->pte;
-    uint64_t page_key = (((uint64_t)fd->pid) << 32) | ((uint64_t)fd->vpn);
+    uint64_t page_key = (((uint64_t) fd->pid) << 32) | ((uint64_t) fd->vpn);
 
     // B4: se a página já lá está (foi swap-in sem apagar), atualiza no lugar.
     swapped_page_t *existing = NULL;
@@ -204,7 +205,7 @@ void destroy_swap(swap_hash_t *swap) {
 
 int swap_in(swap_hash_t *swap, frame_desc_t *fd) {
     pte_t *pte = fd->pte;
-    uint64_t page_key = (((uint64_t)fd->pid) << 32) | ((uint64_t)fd->vpn);
+    uint64_t page_key = (((uint64_t) fd->pid) << 32) | ((uint64_t) fd->vpn);
     swapped_page_t *swapped_page = NULL;
     HASH_FIND(hh, swap->pages, &page_key, sizeof(uint64_t), swapped_page);
     if (!swapped_page) {
@@ -233,7 +234,8 @@ pte_t *page_request(pcb_t *pcb, frame_table_t *frame_table, swap_hash_t *swap, i
         return NULL;
     }
 
-    if (is_active(pte)) {                       // page hit
+    if (is_active(pte)) {
+        // page hit
         //TODO ADICIONADO PRINTF PAGE HIT
         printf("[PID %d] Page Hit: VPN %d Found in Frame %d.\n\n", pcb->pid, vpn, pte->pfn);
         update_eviction_array(&frame_table->eviction_order, pte->pfn, current_time_ms);
@@ -244,9 +246,11 @@ pte_t *page_request(pcb_t *pcb, frame_table_t *frame_table, swap_hash_t *swap, i
     //TODO ADICIONADO PRINTF PAGE FAULT
     printf("[PID %d] Page Fault: VPN %d Requested but not in RAM.\n\n", pcb->pid, vpn);
 
-    if (is_valid(pte)) {                        // está em swap
+    if (is_valid(pte)) {
+        // está em swap
         int32_t next_pfn = pop_free_frame(&frame_table->free_stack);
-        if (next_pfn == INVALID_PFN) {     // B2
+        if (next_pfn == INVALID_PFN) {
+            // B2
             printf("ERROR: no free pframe to swap in vpn %d of process %d\n", vpn, pcb->pid);
             return NULL;
         }
@@ -264,7 +268,8 @@ pte_t *page_request(pcb_t *pcb, frame_table_t *frame_table, swap_hash_t *swap, i
 
     // Página nunca alocada → alocar frame livre
     int32_t next_pfn = pop_free_frame(&frame_table->free_stack);
-    if (next_pfn == INVALID_PFN) {          // B2
+    if (next_pfn == INVALID_PFN) {
+        // B2
         printf("ERROR: no free pframe to allocate vpn %d of process %d\n", vpn, pcb->pid);
         return NULL;
     }
@@ -273,7 +278,7 @@ pte_t *page_request(pcb_t *pcb, frame_table_t *frame_table, swap_hash_t *swap, i
     fd->pte = pte;
     fd->pid = pcb->pid;
     fd->vpn = vpn;
-    fd->pte->dirty = 1;                          // páginas novas nascem "dirty"
+    fd->pte->dirty = 1; // páginas novas nascem "dirty"
     update_eviction_array(&frame_table->eviction_order, next_pfn, current_time_ms);
     return pte;
 }
@@ -299,13 +304,12 @@ int page_eviction(frame_table_t *frame_table, swap_hash_t *swap, int32_t min_pag
         printf("[PID %d] Eviction: Frame %d -> VPN %d EVICTED.\n", fd->pid, evict_pfn, fd->vpn);
         pte->present = 0;
         if (pte->dirty) {
-
             //TODO ADDED PRINTF DIRTY PAGES
             printf("[PID %d] Dirty Page: VPN %d is DIRTY -> swap-out to disc.\n\n", fd->pid, fd->vpn);
             if (swap_out(swap, fd) < 0) {
                 printf("Failed to swap out vpn %d of process %d\n", fd->vpn, fd->pid);
             }
-        }else {
+        } else {
             // Página limpa: a cópia em swap já está atualizada, não é preciso escrever.
             printf("[PID %d] Clean Page: VPN %d is CLEAN -> discarded, no swap-out.\n\n", fd->pid, fd->vpn);
         }
@@ -328,7 +332,7 @@ int free_frames_from_memory(frame_table_t *frame_table, int32_t pid) {
         frame_desc_t *fd = &frame_table->frames[i];
         if (fd->pid == pid) {
             push_free_frame(&frame_table->free_stack, i);
-            remove_from_eviction_array(&frame_table->eviction_order, i);   // B3
+            remove_from_eviction_array(&frame_table->eviction_order, i); // B3
             if (fd->pte) fd->pte->pfn = INVALID_PFN;
             fd->pte = NULL;
             fd->pid = -1;
@@ -340,7 +344,7 @@ int free_frames_from_memory(frame_table_t *frame_table, int32_t pid) {
 }
 
 int swap_del(swap_hash_t *swap, int32_t pid, int32_t vpn) {
-    uint64_t page_key = (((uint64_t)pid) << 32) | ((uint64_t)vpn);
+    uint64_t page_key = (((uint64_t) pid) << 32) | ((uint64_t) vpn);
     swapped_page_t *swapped_page = NULL;
     HASH_FIND(hh, swap->pages, &page_key, sizeof(uint64_t), swapped_page);
     if (!swapped_page) return 0;
@@ -360,7 +364,7 @@ int free_frames_from_swap(swap_hash_t *swap, int32_t pid, int32_t pages) {
 
 void free_pages(frame_table_t *frame_table, swap_hash_t *swap, pcb_t *pcb) {
     int mem = free_frames_from_memory(frame_table, pcb->pid);
-    int sw  = free_frames_from_swap(swap, pcb->pid, pcb->page_table.nvalid);
+    int sw = free_frames_from_swap(swap, pcb->pid, pcb->page_table.nvalid);
     for (uint32_t i = 0; i < pcb->page_table.nvalid; i++) {
         pcb->page_table.ptes[i].pfn = INVALID_PFN;
         pcb->page_table.ptes[i].present = 0;
@@ -368,7 +372,7 @@ void free_pages(frame_table_t *frame_table, swap_hash_t *swap, pcb_t *pcb) {
     printf("Process %d terminated: freed %d pframes from RAM, %d vpages from swap\n", pcb->pid, mem, sw);
     printf("%s stats: accesses=%d faults=%d swap-in=%d swap-out=%d fault-rate=%.3f\n",
            get_eviction_algo_str(), npageacc, npagefaults, nswapin, nswapout,
-           npageacc ? (float)npagefaults / (float)npageacc : 0.0f);
+           npageacc ? (float) npagefaults / (float) npageacc : 0.0f);
 }
 
 /* ------------------------------------------------------------------ */
@@ -377,7 +381,7 @@ void free_pages(frame_table_t *frame_table, swap_hash_t *swap, pcb_t *pcb) {
 
 int init_eviction_arr(array_t *array, int num_pframes) {
     if (array == NULL || num_pframes <= 0) return -1;
-    array->ids = malloc((size_t)num_pframes * sizeof(array_elem_t));
+    array->ids = malloc((size_t) num_pframes * sizeof(array_elem_t));
     if (array->ids == NULL) {
         printf("Cannot allocate memory for eviction array\n");
         return -1;
@@ -385,7 +389,7 @@ int init_eviction_arr(array_t *array, int num_pframes) {
     array->top = -1;
     array->max_size = num_pframes;
     array->last_index = 0;
-    srand((unsigned)time(NULL));   // usado pelo RANDOM
+    srand((unsigned) time(NULL)); // usado pelo RANDOM
     return 0;
 }
 
@@ -418,7 +422,7 @@ static int32_t remove_at_index(array_t *arr, int idx) {
     if (arr == NULL || idx < 0 || idx > arr->top) return INVALID_PFN;
 
     // Passo 2: guardar o pfn da vítima antes de o elemento ser sobreposto.
-    int32_t pfn = (int32_t)arr->ids[idx].pfn;
+    int32_t pfn = (int32_t) arr->ids[idx].pfn;
 
     // Passo 3: deslocar uma posição para trás todos os elementos seguintes.
     //          Assim o array continua contíguo (posições 0..top) e mantém a
@@ -481,7 +485,7 @@ int update_eviction_array(array_t *eviction_arr, int pfn, uint32_t current_time_
         // já registada? só atualizar timestamps / use bit
         if (eviction_arr) {
             for (int i = 0; i <= eviction_arr->top; i++) {
-                if (eviction_arr->ids[i].pfn == (uint32_t)pfn) {
+                if (eviction_arr->ids[i].pfn == (uint32_t) pfn) {
                     eviction_arr->ids[i].last_accessed = current_time_ms;
                     eviction_arr->ids[i].use_bit = 1;
                     return 1;
@@ -491,16 +495,16 @@ int update_eviction_array(array_t *eviction_arr, int pfn, uint32_t current_time_
         return 0;
     }
     for (int i = 0; i <= eviction_arr->top; i++) {
-        if (eviction_arr->ids[i].pfn == (uint32_t)pfn) {
+        if (eviction_arr->ids[i].pfn == (uint32_t) pfn) {
             eviction_arr->ids[i].last_accessed = current_time_ms;
             eviction_arr->ids[i].use_bit = 1;
             return 1;
         }
     }
     eviction_arr->top++;
-    eviction_arr->ids[eviction_arr->top].pfn     = pfn;
+    eviction_arr->ids[eviction_arr->top].pfn = pfn;
     eviction_arr->ids[eviction_arr->top].last_accessed = current_time_ms;
-    eviction_arr->ids[eviction_arr->top].use_bit       = 1;
+    eviction_arr->ids[eviction_arr->top].use_bit = 1;
     return 1;
 }
 
@@ -511,7 +515,7 @@ int update_eviction_array(array_t *eviction_arr, int pfn, uint32_t current_time_
 void remove_from_eviction_array(array_t *eviction_arr, int pfn) {
     if (eviction_arr == NULL) return;
     for (int i = 0; i <= eviction_arr->top; i++) {
-        if (eviction_arr->ids[i].pfn == (uint32_t)pfn) {
+        if (eviction_arr->ids[i].pfn == (uint32_t) pfn) {
             // Usa a mesma função de remoção dos algoritmos, para que o
             // ponteiro do relógio (CLOCK) continue a apontar para a mesma
             // página quando um processo termina e as suas frames saem do array.

@@ -1,0 +1,19 @@
+# Workload #1 (slide 111): sem localidade de acessos
+# 30 acessos a paginas escolhidas ao acaso entre 1 e 10: nenhuma pagina e
+# mais provavel do que outra, logo nenhum algoritmo consegue prever melhor.
+# Executar com: --pframes 5 --threshold 1 (4 paginas residentes antes de cada acesso)
+# Cada burst: 300 ms CPU + 300 ms bloqueado (> NRU_PERIOD_MS = 500 ms)
+300,300,0,[1,9,7]
+300,300,0,[6,2]
+300,300,0,[8,3,10]
+300,300,0,[3,6]
+300,300,0,[9,2]
+300,300,0,[6,4]
+300,300,0,[9,5]
+300,300,0,[8,3,2]
+300,300,0,[1]
+300,300,0,[1]
+300,300,0,[1,4]
+300,300,0,[2,1,8]
+300,300,0,[9,3]
+300,300,0,[9,8]
