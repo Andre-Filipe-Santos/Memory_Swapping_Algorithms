@@ -8,7 +8,8 @@
 #include "msg.h"
 
 /* TODO (opcional, tarefa 5): acrescentar "RR" a esta lista e ao enum sched_algo_en. */
-static const char *SCHED_NAMES[] = {"FIFO", "RR", NULL};
+static const char *SCHED_NAMES[] = {"FIFO", NULL};
+
 static sched_algo_en sched_algo = SCHED_FIFO;
 
 int set_sched_algo(const char *name) {

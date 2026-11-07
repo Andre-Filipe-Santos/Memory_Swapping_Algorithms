@@ -1,3 +1,3 @@
-script_sequencial.sh#permissoes chmod +x <file> ou chmod a+x <file> teste
+#permissoes chmod +x <file> ou chmod a+x <file> teste
 
 ./build/application scenarios/sem_localidade.csv
